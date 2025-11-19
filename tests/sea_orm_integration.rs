@@ -1,0 +1,327 @@
+use aip_160::{parse_filter, ToSeaOrmCondition};
+use sea_orm::{
+    entity::prelude::*, Database, DatabaseConnection, DbErr, QueryOrder, QuerySelect, Set,
+};
+
+// Define test entity
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[sea_orm(table_name = "users")]
+pub struct Model {
+    #[sea_orm(primary_key)]
+    pub id: i32,
+    pub name: String,
+    pub email: String,
+    pub age: i32,
+    pub active: bool,
+    pub score: f64,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+// Helper function to setup test database
+async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
+    let db = Database::connect("sqlite::memory:").await?;
+
+    // Create table
+    let create_table_sql = r#"
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            age INTEGER NOT NULL,
+            active BOOLEAN NOT NULL,
+            score REAL NOT NULL
+        )
+    "#;
+
+    db.execute_unprepared(create_table_sql).await?;
+
+    Ok(db)
+}
+
+// Helper function to seed test data
+async fn seed_data(db: &DatabaseConnection) -> Result<(), DbErr> {
+    let users = vec![
+        (1, "Alice", "alice@example.com", 25, true, 95.5),
+        (2, "Bob", "bob@example.com", 30, true, 87.3),
+        (3, "Charlie", "charlie@test.com", 22, false, 76.8),
+        (4, "David", "david@example.com", 35, true, 91.2),
+        (5, "Eve", "eve@test.com", 28, false, 82.4),
+        (6, "Frank", "frank@example.com", 42, true, 88.9),
+    ];
+
+    for (id, name, email, age, active, score) in users {
+        let user = ActiveModel {
+            id: Set(id),
+            name: Set(name.to_string()),
+            email: Set(email.to_string()),
+            age: Set(age),
+            active: Set(active),
+            score: Set(score),
+        };
+        Entity::insert(user).exec(db).await?;
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_simple_equality_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("name = \"Alice\"")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].name, "Alice");
+    assert_eq!(users[0].age, 25);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_number_comparison() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("age > 30")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 2); // David (35) and Frank (42)
+    assert!(users.iter().all(|u| u.age > 30));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_float_comparison() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("score >= 90.0")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 2); // Alice (95.5) and David (91.2)
+    assert!(users.iter().all(|u| u.score >= 90.0));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_boolean_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("active = true")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 4); // Alice, Bob, David, Frank
+    assert!(users.iter().all(|u| u.active));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_and_expression() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("age > 25 AND active = true")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 3); // Bob, David, Frank
+    assert!(users.iter().all(|u| u.age > 25 && u.active));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_or_expression() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("name = \"Alice\" OR name = \"Bob\"")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 2);
+    assert!(users.iter().any(|u| u.name == "Alice"));
+    assert!(users.iter().any(|u| u.name == "Bob"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_not_expression() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("NOT active = false")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 4); // All active users
+    assert!(users.iter().all(|u| u.active));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_has_operator_like() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("email : \"@example.com\"")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 4); // Alice, Bob, David, Frank
+    assert!(users.iter().all(|u| u.email.contains("@example.com")));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_complex_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    // Find active users older than 25 with score >= 85
+    let filter = parse_filter("active = true AND age > 25 AND score >= 85.0")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 3); // Bob, David, Frank
+    assert!(users.iter().all(|u| u.active && u.age > 25 && u.score >= 85.0));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_grouped_expression() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    // (name = "Alice" OR name = "Bob") AND age >= 25
+    let filter = parse_filter("(name = \"Alice\" OR name = \"Bob\") AND age >= 25")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 2); // Alice (25) and Bob (30)
+    assert!(users.iter().all(|u| (u.name == "Alice" || u.name == "Bob") && u.age >= 25));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_less_than_or_equal() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("age <= 28")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 3); // Alice (25), Charlie (22), Eve (28)
+    assert!(users.iter().all(|u| u.age <= 28));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_not_equal() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("name != \"Alice\"")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find().filter(condition).all(&db).await?;
+
+    assert_eq!(users.len(), 5);
+    assert!(users.iter().all(|u| u.name != "Alice"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ordering_with_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("active = true")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find()
+        .filter(condition)
+        .order_by_asc(Column::Age)
+        .all(&db)
+        .await?;
+
+    assert_eq!(users.len(), 4);
+    // Check ordering
+    assert_eq!(users[0].name, "Alice"); // age 25
+    assert_eq!(users[1].name, "Bob");   // age 30
+    assert_eq!(users[2].name, "David"); // age 35
+    assert_eq!(users[3].name, "Frank"); // age 42
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pagination_with_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("active = true")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let users = Entity::find()
+        .filter(condition)
+        .order_by_asc(Column::Id)
+        .limit(2)
+        .offset(1)
+        .all(&db)
+        .await?;
+
+    assert_eq!(users.len(), 2);
+    assert_eq!(users[0].name, "Bob");   // id 2
+    assert_eq!(users[1].name, "David"); // id 4
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_count_with_filter() -> Result<(), Box<dyn std::error::Error>> {
+    let db = setup_test_db().await?;
+    seed_data(&db).await?;
+
+    let filter = parse_filter("score > 85.0")?;
+    let condition = filter.to_condition::<Entity>()?;
+
+    let count = Entity::find().filter(condition).count(&db).await?;
+
+    assert_eq!(count, 4); // Alice, Bob, David, Frank
+
+    Ok(())
+}
