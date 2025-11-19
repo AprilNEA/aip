@@ -174,6 +174,10 @@ where
         (Value::String(s), SeaColumnType::Time) => {
             Expr::val(s.as_str()).cast_as(Alias::new("time")).into()
         }
+        // Enum columns - cast string to the enum type
+        (Value::String(s), SeaColumnType::Enum { name, .. }) => {
+            Expr::val(s.as_str()).cast_as(Alias::new(name.to_string())).into()
+        }
         // Default: no explicit cast needed
         (Value::String(s), _) => Expr::val(s.as_str()).into(),
         (Value::Number(n), _) => {
@@ -210,7 +214,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse_filter;
 
     // Note: Unit tests here are minimal because full Entity integration
     // requires complex trait implementations. See tests/sea_orm_integration.rs

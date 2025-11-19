@@ -3,7 +3,7 @@ name = "aip-160"
 authors = ["AprilNEA <github@sku.moe>"]
 description = "A Rust implementation of Google AIP-160 filtering standard."
 license = "MIT or Apache-2.0"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 repository = "https://github.com/AprilNEA/aip-160"
 

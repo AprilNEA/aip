@@ -88,6 +88,7 @@ Entity::find().filter(condition).all(db).await?;
 - `String` → `TIMESTAMP` / `TIMESTAMPTZ` (for timestamp columns)
 - `String` → `DATE` (for date columns)
 - `String` → `TIME` (for time columns)
+- `String` → `ENUM` (for PostgreSQL enum columns)
 - `Number` → `INTEGER` / `FLOAT` (based on database column type)
 
 The library reads your Entity's column definitions and generates the appropriate SQL `CAST` expressions automatically!
