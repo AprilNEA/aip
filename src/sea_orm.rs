@@ -200,12 +200,12 @@ where
                 "Has operator (:) requires a string value".to_string()
             ))
         }
-        (Comparator::Equal, _) => Condition::all().add(column.eq(value_expr)),
-        (Comparator::NotEqual, _) => Condition::all().add(column.ne(value_expr)),
-        (Comparator::GreaterThan, _) => Condition::all().add(column.gt(value_expr)),
-        (Comparator::GreaterThanOrEqual, _) => Condition::all().add(column.gte(value_expr)),
-        (Comparator::LessThan, _) => Condition::all().add(column.lt(value_expr)),
-        (Comparator::LessThanOrEqual, _) => Condition::all().add(column.lte(value_expr)),
+        (Comparator::Equal, _) => Condition::all().add(Expr::expr(column).eq(value_expr)),
+        (Comparator::NotEqual, _) => Condition::all().add(Expr::expr(column).ne(value_expr)),
+        (Comparator::GreaterThan, _) => Condition::all().add(Expr::expr(column).gt(value_expr)),
+        (Comparator::GreaterThanOrEqual, _) => Condition::all().add(Expr::expr(column).gte(value_expr)),
+        (Comparator::LessThan, _) => Condition::all().add(Expr::expr(column).lt(value_expr)),
+        (Comparator::LessThanOrEqual, _) => Condition::all().add(Expr::expr(column).lte(value_expr)),
     };
 
     Ok(condition)

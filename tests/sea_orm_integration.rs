@@ -1,6 +1,7 @@
 use aip_160::{parse_filter, ToSeaOrmCondition};
 use sea_orm::{
-    entity::prelude::*, Database, DatabaseConnection, DbErr, QueryOrder, QuerySelect, Set,
+    entity::prelude::*, Database, DatabaseConnection, DbBackend, DbErr, QueryOrder, QuerySelect, Set,
+    QueryTrait,
 };
 
 // Define test entity
@@ -20,6 +21,55 @@ pub struct Model {
 pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
+
+// Define UUID test entity for PostgreSQL-specific tests
+mod uuid_entity {
+    use sea_orm::entity::prelude::*;
+
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "documents")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub id: Uuid,
+        pub title: String,
+        pub created_at: DateTimeWithTimeZone,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+// Define entity with enum column for PostgreSQL-specific tests
+mod enum_entity {
+    use sea_orm::entity::prelude::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+    #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "status_type")]
+    pub enum Status {
+        #[sea_orm(string_value = "pending")]
+        Pending,
+        #[sea_orm(string_value = "active")]
+        Active,
+        #[sea_orm(string_value = "completed")]
+        Completed,
+    }
+
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "tasks")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i32,
+        pub name: String,
+        pub status: Status,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
 
 // Helper function to setup test database
 async fn setup_test_db() -> Result<DatabaseConnection, DbErr> {
@@ -322,6 +372,72 @@ async fn test_count_with_filter() -> Result<(), Box<dyn std::error::Error>> {
     let count = Entity::find().filter(condition).count(&db).await?;
 
     assert_eq!(count, 4); // Alice, Bob, David, Frank
+
+    Ok(())
+}
+
+// Test that UUID columns generate proper CAST in SQL
+#[test]
+fn test_uuid_cast_in_sql() -> Result<(), Box<dyn std::error::Error>> {
+    // Test equality
+    let filter = parse_filter("id = \"550e8400-e29b-41d4-a716-446655440000\"")?;
+    let condition = filter.to_condition::<uuid_entity::Entity>()?;
+    let query = uuid_entity::Entity::find().filter(condition);
+    let sql = query.build(DbBackend::Postgres).to_string();
+
+    assert!(sql.contains("CAST"), "SQL should contain CAST for UUID: {}", sql);
+    assert!(sql.contains("uuid"), "SQL should cast to uuid type: {}", sql);
+
+    Ok(())
+}
+
+// Test that UUID columns with comparison operators also generate CAST
+#[test]
+fn test_uuid_cast_comparison_operators() -> Result<(), Box<dyn std::error::Error>> {
+    // Test greater than
+    let filter = parse_filter("id > \"550e8400-e29b-41d4-a716-446655440000\"")?;
+    let condition = filter.to_condition::<uuid_entity::Entity>()?;
+    let query = uuid_entity::Entity::find().filter(condition);
+    let sql = query.build(DbBackend::Postgres).to_string();
+
+    assert!(sql.contains("CAST"), "SQL should contain CAST for UUID comparison: {}", sql);
+    assert!(sql.contains("uuid"), "SQL should cast to uuid type: {}", sql);
+
+    // Test less than
+    let filter2 = parse_filter("id < \"550e8400-e29b-41d4-a716-446655440000\"")?;
+    let condition2 = filter2.to_condition::<uuid_entity::Entity>()?;
+    let query2 = uuid_entity::Entity::find().filter(condition2);
+    let sql2 = query2.build(DbBackend::Postgres).to_string();
+
+    assert!(sql2.contains("CAST"), "SQL should contain CAST for UUID lt comparison: {}", sql2);
+
+    Ok(())
+}
+
+// Test that timestamp columns generate proper CAST in SQL
+#[test]
+fn test_timestamp_cast_in_sql() -> Result<(), Box<dyn std::error::Error>> {
+    let filter = parse_filter("created_at > \"2024-01-01T00:00:00Z\"")?;
+    let condition = filter.to_condition::<uuid_entity::Entity>()?;
+    let query = uuid_entity::Entity::find().filter(condition);
+    let sql = query.build(DbBackend::Postgres).to_string();
+
+    assert!(sql.contains("CAST"), "SQL should contain CAST for timestamp: {}", sql);
+    assert!(sql.contains("timestamptz"), "SQL should cast to timestamptz type: {}", sql);
+
+    Ok(())
+}
+
+// Test that enum columns generate proper CAST in SQL
+#[test]
+fn test_enum_cast_in_sql() -> Result<(), Box<dyn std::error::Error>> {
+    let filter = parse_filter("status = \"active\"")?;
+    let condition = filter.to_condition::<enum_entity::Entity>()?;
+    let query = enum_entity::Entity::find().filter(condition);
+    let sql = query.build(DbBackend::Postgres).to_string();
+
+    assert!(sql.contains("CAST"), "SQL should contain CAST for enum: {}", sql);
+    assert!(sql.contains("status_type"), "SQL should cast to enum type name: {}", sql);
 
     Ok(())
 }
