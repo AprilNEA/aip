@@ -1,0 +1,22 @@
+[package]
+name = "aip-193"
+version = "0.1.0"
+description = "A Rust implementation of Google AIP-193 Errors."
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+
+[features]
+default = []
+derive = ["aip-193-derive"]
+
+[dependencies]
+http = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+strum = { version = "0.26", features = ["derive"] }
+
+aip-193-derive = { path = "../aip-193-derive", optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"
