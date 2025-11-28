@@ -10,6 +10,8 @@ struct StatusInput {
     ident: Ident,
     data: ast::Data<StatusVariant, ()>,
     domain: String,
+    #[darling(default)]
+    into_response: bool,
 }
 
 #[derive(Debug, FromVariant)]
@@ -32,13 +34,7 @@ struct StatusField {
     metadata_key: Option<String>,
 }
 
-/// Intelligent detection crate path
-///
-/// Priority:
-/// 1. `aip` (main crate) -> `::aip::__private::errors`
-/// 2. `aip-193` (direct dependency) -> `::aip_193`
 fn get_crate_path() -> proc_macro2::TokenStream {
-    // Prioritize checking the main crate `aip`
     if let Ok(found) = crate_name("aip") {
         return match found {
             FoundCrate::Itself => quote!(crate::__private::errors),
@@ -49,7 +45,6 @@ fn get_crate_path() -> proc_macro2::TokenStream {
         };
     }
     
-    // Roll back to direct dependency on `aip-193`
     if let Ok(found) = crate_name("aip-193") {
         return match found {
             FoundCrate::Itself => quote!(crate),
@@ -60,7 +55,6 @@ fn get_crate_path() -> proc_macro2::TokenStream {
         };
     }
     
-    // Final rollback
     quote!(::aip_193)
 }
 
@@ -91,7 +85,7 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
     let message_arms = generate_message_arms(name, variants);
     let metadata_arms = generate_metadata_arms(name, variants);
 
-    quote! {
+    let into_status_impl = quote! {
         impl #krate::IntoStatus for #name {
             fn code(&self) -> #krate::Code {
                 match self {
@@ -119,6 +113,31 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
                 }
             }
         }
+    };
+
+    let into_response_impl = if input.into_response {
+        generate_into_response_impl(name, &krate)
+    } else {
+        quote! {}
+    };
+
+    quote! {
+        #into_status_impl
+        #into_response_impl
+    }
+}
+
+fn generate_into_response_impl(
+    name: &Ident,
+    krate: &proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl ::axum_core::response::IntoResponse for #name {
+            fn into_response(self) -> ::axum_core::response::Response {
+                let status: #krate::Status = #krate::IntoStatus::into_status(self);
+                ::axum_core::response::IntoResponse::into_response(status)
+            }
+        }
     }
 }
 
@@ -136,13 +155,16 @@ fn generate_code_arms(
     }).collect()
 }
 
-fn generate_message_arms(enum_name: &Ident, variants: &[StatusVariant]) -> Vec<proc_macro2::TokenStream> {
+fn generate_message_arms(
+    enum_name: &Ident, 
+    variants: &[StatusVariant],
+) -> Vec<proc_macro2::TokenStream> {
     variants.iter().map(|v| {
         let variant_name = &v.ident;
         let pattern = generate_pattern(enum_name, v);
         
         let message_expr = if let Some(template) = &v.message {
-            quote! { format!(#template) }
+            parse_message_template(template, &v.fields)
         } else {
             let default_msg = format!("{}", variant_name);
             quote! { #default_msg.to_string() }
@@ -154,7 +176,54 @@ fn generate_message_arms(enum_name: &Ident, variants: &[StatusVariant]) -> Vec<p
     }).collect()
 }
 
-fn generate_metadata_arms(enum_name: &Ident, variants: &[StatusVariant]) -> Vec<proc_macro2::TokenStream> {
+fn parse_message_template(
+    template: &str,
+    fields: &ast::Fields<StatusField>,
+) -> proc_macro2::TokenStream {
+    let field_names: Vec<String> = fields.iter()
+        .filter_map(|f| f.ident.as_ref().map(|i| i.to_string()))
+        .collect();
+    
+    let mut format_str = String::new();
+    let mut args: Vec<proc_macro2::TokenStream> = Vec::new();
+    
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '{' {
+            let mut field_name = String::new();
+            while let Some(&next) = chars.peek() {
+                if next == '}' {
+                    chars.next();
+                    break;
+                }
+                field_name.push(chars.next().unwrap());
+            }
+            
+            if field_names.contains(&field_name) {
+                format_str.push_str("{}");
+                let field_ident = Ident::new(&field_name, proc_macro2::Span::call_site());
+                args.push(quote! { #field_ident });
+            } else {
+                format_str.push('{');
+                format_str.push_str(&field_name);
+                format_str.push('}');
+            }
+        } else {
+            format_str.push(c);
+        }
+    }
+    
+    if args.is_empty() {
+        quote! { #template.to_string() }
+    } else {
+        quote! { format!(#format_str, #(#args),*) }
+    }
+}
+
+fn generate_metadata_arms(
+    enum_name: &Ident, 
+    variants: &[StatusVariant],
+) -> Vec<proc_macro2::TokenStream> {
     variants.iter().map(|v| {
         let pattern = generate_pattern(enum_name, v);
         
