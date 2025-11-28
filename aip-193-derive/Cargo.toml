@@ -1,6 +1,6 @@
 [package]
 name = "aip-193-derive"
-version = "0.1.2"
+version = "0.1.3"
 description = "A Rust implementation of Google AIP-193 Errors derive macros."
 edition = { workspace = true }
 authors = { workspace = true }
