@@ -24,9 +24,16 @@ pub trait IntoStatus {
 
 impl<T: IntoStatus> From<T> for Status {
     fn from(err: T) -> Self {
+        let status_code = err.code();
+        #[cfg(feature = "http")]
+        let http_code = http::StatusCode::from(status_code).as_u16() as i32;
+        #[cfg(not(feature = "http"))]
+        let http_code = status_code as i32;
+
         Status {
-            code: err.code().into(),
+            code: http_code,
             message: err.message(),
+            status: status_code,
             details: StatusDetails {
                 error_info: Some(ErrorInfo {
                     reason: err.reason().to_string(),
@@ -163,6 +170,7 @@ mod tests {
     // ============ From<T: IntoStatus> for Status Tests ============
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_from_simple_error_to_status() {
         let err = SimpleError {
             kind: ErrorKind::NotFound,
@@ -170,7 +178,8 @@ mod tests {
 
         let status: Status = err.into();
 
-        assert_eq!(status.code, Code::NotFound);
+        assert_eq!(status.code, 404);
+        assert_eq!(status.status, Code::NotFound);
         assert_eq!(status.message, "Resource not found");
 
         let error_info = status.details.error_info.as_ref().unwrap();
@@ -180,6 +189,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_from_error_with_metadata_to_status() {
         let err = ErrorWithMetadata {
             user_id: "user_123".to_string(),
@@ -188,7 +198,8 @@ mod tests {
 
         let status: Status = err.into();
 
-        assert_eq!(status.code, Code::NotFound);
+        assert_eq!(status.code, 404);
+        assert_eq!(status.status, Code::NotFound);
         assert!(status.message.contains("user_123"));
         assert!(status.message.contains("doc_456"));
 
@@ -206,29 +217,24 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_from_all_error_kinds() {
         let test_cases = [
-            (ErrorKind::NotFound, Code::NotFound, "NOT_FOUND"),
-            (
-                ErrorKind::InvalidArgument,
-                Code::InvalidArgument,
-                "INVALID_ARGUMENT",
-            ),
-            (
-                ErrorKind::PermissionDenied,
-                Code::PermissionDenied,
-                "PERMISSION_DENIED",
-            ),
+            (ErrorKind::NotFound, Code::NotFound, 404),
+            (ErrorKind::InvalidArgument, Code::InvalidArgument, 400),
+            (ErrorKind::PermissionDenied, Code::PermissionDenied, 403),
         ];
 
-        for (kind, expected_code, _code_name) in test_cases {
+        for (kind, expected_status, expected_http_code) in test_cases {
             let err = SimpleError { kind };
             let status: Status = err.into();
-            assert_eq!(status.code, expected_code);
+            assert_eq!(status.status, expected_status);
+            assert_eq!(status.code, expected_http_code);
         }
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_from_function() {
         let err = SimpleError {
             kind: ErrorKind::InvalidArgument,
@@ -236,7 +242,8 @@ mod tests {
 
         let status = Status::from(err);
 
-        assert_eq!(status.code, Code::InvalidArgument);
+        assert_eq!(status.code, 400);
+        assert_eq!(status.status, Code::InvalidArgument);
         assert_eq!(status.message, "Invalid argument provided");
     }
 
@@ -256,6 +263,7 @@ mod tests {
     // ============ Serialization Tests ============
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_from_into_status_serializes() {
         let err = ErrorWithMetadata {
             user_id: "usr_001".to_string(),
@@ -265,7 +273,8 @@ mod tests {
         let status: Status = err.into();
         let json = serde_json::to_string(&status).unwrap();
 
-        assert!(json.contains(r#""code":"NOT_FOUND""#));
+        assert!(json.contains(r#""code":404"#));
+        assert!(json.contains(r#""status":"NOT_FOUND""#));
         assert!(json.contains(r#""reason":"ACCESS_DENIED""#));
         assert!(json.contains(r#""domain":"authz.example.com""#));
         assert!(json.contains(r#""user_id":"usr_001""#));

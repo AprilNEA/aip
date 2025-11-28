@@ -25,8 +25,9 @@ fn test_complete_error_workflow() {
 
     // 2. Wrap it in a Status
     let status = Status {
-        code: Code::NotFound,
+        code: 404,
         message: "The requested user does not exist".to_string(),
+        status: Code::NotFound,
         details: StatusDetails {
             error_info: Some(error_info),
         },
@@ -36,7 +37,8 @@ fn test_complete_error_workflow() {
     let json = serde_json::to_string_pretty(&status).unwrap();
 
     // 4. Verify JSON structure
-    assert!(json.contains(r#""code": "NOT_FOUND""#));
+    assert!(json.contains(r#""code": 404"#));
+    assert!(json.contains(r#""status": "NOT_FOUND""#));
     assert!(json.contains(r#""message": "The requested user does not exist""#));
     assert!(json.contains(r#""reason": "USER_NOT_FOUND""#));
     assert!(json.contains(r#""domain": "users.myapp.com""#));
@@ -44,7 +46,8 @@ fn test_complete_error_workflow() {
 
     // 5. Deserialize back
     let parsed: Status = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed.code, Code::NotFound);
+    assert_eq!(parsed.code, 404);
+    assert_eq!(parsed.status, Code::NotFound);
     assert_eq!(parsed.message, "The requested user does not exist");
 
     let parsed_info = parsed.details.error_info.unwrap();
@@ -80,8 +83,9 @@ fn test_complex_error_scenario() {
         .with_metadata("quota_reset_at", "2024-01-01T00:00:00Z");
 
     let status = Status {
-        code: Code::ResourceExhausted,
+        code: 429,
         message: "Rate limit exceeded. Please retry after 60 seconds.".to_string(),
+        status: Code::ResourceExhausted,
         details: StatusDetails {
             error_info: Some(error_info),
         },
@@ -106,13 +110,14 @@ fn test_complex_error_scenario() {
 fn test_json_skip_empty_fields() {
     // Status with no message and no details
     let minimal = Status {
-        code: Code::Ok,
+        code: 200,
         message: String::new(),
+        status: Code::Ok,
         details: StatusDetails::default(),
     };
 
     let json = serde_json::to_string(&minimal).unwrap();
-    assert_eq!(json, r#"{"code":"OK"}"#);
+    assert_eq!(json, r#"{"code":200,"status":"OK"}"#);
 
     // ErrorInfo with only reason
     let info = ErrorInfo {
@@ -129,9 +134,10 @@ fn test_json_skip_empty_fields() {
 #[test]
 fn test_json_deserialize_partial() {
     // Minimal Status
-    let json = r#"{"code": "NOT_FOUND"}"#;
+    let json = r#"{"code": 404, "status": "NOT_FOUND"}"#;
     let status: Status = serde_json::from_str(json).unwrap();
-    assert_eq!(status.code, Code::NotFound);
+    assert_eq!(status.code, 404);
+    assert_eq!(status.status, Code::NotFound);
     assert!(status.message.is_empty());
     assert!(status.details.is_empty());
 
@@ -147,7 +153,8 @@ fn test_json_deserialize_partial() {
 #[test]
 fn test_json_nested_structure() {
     let json = r#"{
-        "code": "PERMISSION_DENIED",
+        "code": 403,
+        "status": "PERMISSION_DENIED",
         "message": "Access denied",
         "details": {
             "error_info": {
@@ -162,7 +169,8 @@ fn test_json_nested_structure() {
     }"#;
 
     let status: Status = serde_json::from_str(json).unwrap();
-    assert_eq!(status.code, Code::PermissionDenied);
+    assert_eq!(status.code, 403);
+    assert_eq!(status.status, Code::PermissionDenied);
 
     let info = status.details.error_info.unwrap();
     assert_eq!(info.reason, "PERMISSION_DENIED");
@@ -394,8 +402,9 @@ fn test_api_error_response_scenario() {
         .build();
 
     let status = Status {
-        code: Code::PermissionDenied,
+        code: 403,
         message: "You don't have permission to read this document".to_string(),
+        status: Code::PermissionDenied,
         details: StatusDetails {
             error_info: Some(error_info),
         },
@@ -408,7 +417,8 @@ fn test_api_error_response_scenario() {
     let parsed: Status = serde_json::from_str(&response_body).unwrap();
 
     // Client can check the code and show appropriate UI
-    assert_eq!(parsed.code, Code::PermissionDenied);
+    assert_eq!(parsed.code, 403);
+    assert_eq!(parsed.status, Code::PermissionDenied);
 
     // Client can log structured error details
     let info = parsed.details.error_info.unwrap();
@@ -431,8 +441,9 @@ fn test_validation_error_scenario() {
         .build();
 
     let status = Status {
-        code: Code::InvalidArgument,
+        code: 400,
         message: "Validation failed: email must be a valid email address".to_string(),
+        status: Code::InvalidArgument,
         details: StatusDetails {
             error_info: Some(error_info),
         },
@@ -459,8 +470,9 @@ fn test_unicode_handling() {
         .with_metadata("emoji", "🚫❌⚠️");
 
     let status = Status {
-        code: Code::InvalidArgument,
+        code: 400,
         message: "入力エラー: 名前フィールドが無効です 🚫".to_string(),
+        status: Code::InvalidArgument,
         details: StatusDetails {
             error_info: Some(error_info),
         },
@@ -499,25 +511,28 @@ fn test_special_characters_in_metadata() {
 #[test]
 fn test_empty_status() {
     let status = Status {
-        code: Code::Ok,
+        code: 200,
         message: String::new(),
+        status: Code::Ok,
         details: StatusDetails::default(),
     };
 
-    assert_eq!(status.code, Code::Ok);
+    assert_eq!(status.code, 200);
+    assert_eq!(status.status, Code::Ok);
     assert!(status.message.is_empty());
     assert!(status.details.is_empty());
 
     let json = serde_json::to_string(&status).unwrap();
-    assert_eq!(json, r#"{"code":"OK"}"#);
+    assert_eq!(json, r#"{"code":200,"status":"OK"}"#);
 }
 
 /// Tests Status with empty ErrorInfo
 #[test]
 fn test_status_with_empty_error_info() {
     let status = Status {
-        code: Code::Unknown,
+        code: 500,
         message: "Unknown error".to_string(),
+        status: Code::Unknown,
         details: StatusDetails {
             error_info: Some(ErrorInfo::default()),
         },

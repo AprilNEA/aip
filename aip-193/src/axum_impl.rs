@@ -8,11 +8,11 @@ struct ErrorResponse<'a> {
     error: &'a [Status],
 }
 
-static INTERNAL_ERROR_JSON: &str = r#"{"error":[{"code":13,"message":"Internal Server Error"}]}"#;
+static INTERNAL_ERROR_JSON: &str = r#"{"error":[{"code":500,"status":"INTERNAL","message":"Internal Server Error"}]}"#;
 
 impl IntoResponse for Status {
     fn into_response(self) -> Response {
-        let http_status = StatusCode::from(self.code);
+        let http_status = StatusCode::from(self.status);
         let body = ErrorResponse { error: &[self] };
         match serde_json::to_string(&body) {
             Ok(json) => (

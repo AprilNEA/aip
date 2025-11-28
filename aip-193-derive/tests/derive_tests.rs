@@ -16,8 +16,8 @@ use strum::AsRefStr;
 // ============================================================================
 
 /// Simple error enum with unit variants
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
-#[status(domain = "test.example.com")]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
+#[status(domain = "test.example.com", use_display = false)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum SimpleError {
     #[status(code = NotFound)]
@@ -106,7 +106,7 @@ fn test_custom_message() {
 // ============================================================================
 
 /// Error enum with struct variants and metadata
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = "users.myapp.com")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum UserError {
@@ -241,7 +241,7 @@ fn test_custom_metadata_keys() {
 // ============================================================================
 
 /// Error enum mixing unit and struct variants
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = "mixed.example.com")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum MixedError {
@@ -311,7 +311,8 @@ fn test_into_status_conversion() {
 
     let status: Status = err.into();
 
-    assert_eq!(status.code, Code::NotFound);
+    assert_eq!(status.code, 404);
+    assert_eq!(status.status, Code::NotFound);
     assert_eq!(status.message, "User not found");
 
     let error_info = status.details.error_info.as_ref().unwrap();
@@ -328,7 +329,8 @@ fn test_status_from_conversion() {
     let err = SimpleError::InternalError;
     let status = Status::from(err);
 
-    assert_eq!(status.code, Code::Internal);
+    assert_eq!(status.code, 500);
+    assert_eq!(status.status, Code::Internal);
     assert_eq!(status.message, "InternalError");
 
     let error_info = status.details.error_info.as_ref().unwrap();
@@ -350,7 +352,8 @@ fn test_status_json_serialization() {
     let status: Status = err.into();
     let json = serde_json::to_string(&status).unwrap();
 
-    assert!(json.contains(r#""code":"INVALID_ARGUMENT""#)); // Code is serialized as string
+    assert!(json.contains(r#""code":400"#));
+    assert!(json.contains(r#""status":"INVALID_ARGUMENT""#));
     assert!(json.contains(r#""message":"Invalid email format""#));
     assert!(json.contains(r#""reason":"INVALID_EMAIL""#));
     assert!(json.contains(r#""domain":"users.myapp.com""#));
@@ -378,7 +381,7 @@ fn test_status_json_roundtrip() {
 // ============================================================================
 
 /// Test all possible Code variants
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = "codes.test.com")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum AllCodesError {
@@ -450,7 +453,7 @@ fn test_all_code_mappings() {
 // ============================================================================
 
 /// Test with Unicode in messages and metadata
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = "i18n.example.com")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum I18nError {
@@ -478,7 +481,7 @@ fn test_unicode_support() {
 }
 
 /// Test with fields that have special Display implementations
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = "numeric.example.com")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum NumericError {
@@ -586,7 +589,8 @@ fn test_realistic_api_errors() {
         token_type: "Bearer".to_string(),
     };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::Unauthenticated);
+    assert_eq!(status.code, 401);
+    assert_eq!(status.status, Code::Unauthenticated);
     let info = status.details.error_info.unwrap();
     assert_eq!(info.metadata.get("token_type"), Some(&"Bearer".to_string()));
 
@@ -596,7 +600,8 @@ fn test_realistic_api_errors() {
         constraint: "must be a valid email address".to_string(),
     };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::InvalidArgument);
+    assert_eq!(status.code, 400);
+    assert_eq!(status.status, Code::InvalidArgument);
     let info = status.details.error_info.unwrap();
     assert_eq!(info.metadata.get("field"), Some(&"email".to_string()));
     assert_eq!(
@@ -610,7 +615,8 @@ fn test_realistic_api_errors() {
         id: "usr_12345".to_string(),
     };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::NotFound);
+    assert_eq!(status.code, 404);
+    assert_eq!(status.status, Code::NotFound);
     let info = status.details.error_info.unwrap();
     assert_eq!(
         info.metadata.get("resource_type"),
@@ -624,7 +630,8 @@ fn test_realistic_api_errors() {
     // Rate limiting
     let err = ApiError::RateLimited { retry_after: 30 };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::ResourceExhausted);
+    assert_eq!(status.code, 429);
+    assert_eq!(status.status, Code::ResourceExhausted);
     let info = status.details.error_info.unwrap();
     assert_eq!(
         info.metadata.get("retry_after_seconds"),
@@ -643,7 +650,8 @@ fn test_api_error_json_response() {
     let json = serde_json::to_string_pretty(&status).unwrap();
 
     // This is what an API would return
-    assert!(json.contains(r#""code": "PERMISSION_DENIED""#)); // Code is serialized as string
+    assert!(json.contains(r#""code": 403"#));
+    assert!(json.contains(r#""status": "PERMISSION_DENIED""#));
     assert!(json.contains(r#""message": "Insufficient permissions""#));
     assert!(json.contains(r#""reason": "INSUFFICIENT_PERMISSIONS""#));
     assert!(json.contains(r#""domain": "api.mycompany.com""#));
@@ -747,7 +755,8 @@ mod into_response_tests {
 
         // Convert to Status first to verify data
         let status: Status = err.clone().into();
-        assert_eq!(status.code, Code::InvalidArgument);
+        assert_eq!(status.code, 400);
+        assert_eq!(status.status, Code::InvalidArgument);
         assert_eq!(status.message, "Validation failed");
 
         let error_info = status.details.error_info.as_ref().unwrap();
@@ -827,7 +836,7 @@ mod into_response_tests {
     }
 
     /// Test without IntoResponse to ensure it's not generated by default
-    #[derive(Debug, Clone, IntoStatus, AsRefStr)]
+    #[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
     #[status(domain = "noresponse.example.com")]
     #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
     enum NoResponseError {
@@ -983,7 +992,7 @@ fn get_dynamic_domain() -> &'static str {
 }
 
 /// Error enum with function-based domain
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = get_static_domain)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum FunctionDomainError {
@@ -1022,13 +1031,14 @@ fn test_function_domain_in_status() {
     let err = FunctionDomainError::NotFound;
     let status: Status = err.into();
 
-    assert_eq!(status.code, Code::NotFound);
+    assert_eq!(status.code, 404);
+    assert_eq!(status.status, Code::NotFound);
     let error_info = status.details.error_info.as_ref().unwrap();
     assert_eq!(error_info.domain, "function.domain.com");
 }
 
 /// Error enum with dynamic function-based domain
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = get_dynamic_domain)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum DynamicDomainError {
@@ -1066,7 +1076,7 @@ fn test_dynamic_domain_in_status() {
 }
 
 /// Error enum with function domain and IntoResponse
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = get_static_domain, into_response = true)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum FunctionDomainWithResponse {
@@ -1122,7 +1132,7 @@ mod domain_helpers {
     }
 }
 
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = domain_helpers::get_module_domain)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum ModuleDomainError {
@@ -1140,7 +1150,7 @@ fn test_module_scoped_domain_function() {
 }
 
 /// Test comparing string domain vs function domain behavior
-#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[derive(Debug, Clone, IntoStatus, AsRefStr, strum::Display)]
 #[status(domain = "static.string.com")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 enum StringDomainError {

@@ -5,12 +5,15 @@ use crate::{Code, ErrorInfo};
 /// The `Status` type defines a logical error model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
-    /// The status code (google.rpc.Code enum value).
-    pub code: Code,
+    // The HTTP status code that corresponds to `google.rpc.Status.code`.
+    pub code: i32,
 
     /// A developer-facing error message in English.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub message: String,
+
+    /// The status code (google.rpc.Code enum value).
+    pub status: Code,
 
     /// A list of messages that carry the error details.
     #[serde(default, skip_serializing_if = "StatusDetails::is_empty")]
@@ -39,37 +42,45 @@ mod tests {
     // ============ Status Tests ============
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_default() {
         let status = Status {
-            code: Code::Ok,
+            code: 200,
             message: String::new(),
+            status: Code::Ok,
             details: StatusDetails::default(),
         };
-        assert_eq!(status.code, Code::Ok);
+        assert_eq!(status.code, 200);
+        assert_eq!(status.status, Code::Ok);
         assert!(status.message.is_empty());
         assert!(status.details.is_empty());
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_with_code_and_message() {
         let status = Status {
-            code: Code::NotFound,
+            code: 404,
             message: "User not found".to_string(),
+            status: Code::NotFound,
             details: StatusDetails::default(),
         };
 
-        assert_eq!(status.code, Code::NotFound);
+        assert_eq!(status.code, 404);
+        assert_eq!(status.status, Code::NotFound);
         assert_eq!(status.message, "User not found");
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_with_error_info() {
         let error_info =
             ErrorInfo::new("USER_NOT_FOUND", "myapp.example.com").with_metadata("user_id", "123");
 
         let status = Status {
-            code: Code::NotFound,
+            code: 404,
             message: "User not found".to_string(),
+            status: Code::NotFound,
             details: StatusDetails {
                 error_info: Some(error_info),
             },
@@ -83,10 +94,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_clone() {
         let status = Status {
-            code: Code::InvalidArgument,
+            code: 400,
             message: "Invalid argument".to_string(),
+            status: Code::InvalidArgument,
             details: StatusDetails {
                 error_info: Some(ErrorInfo::new("INVALID_EMAIL", "auth.example.com")),
             },
@@ -97,22 +110,26 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_equality() {
         let status1 = Status {
-            code: Code::NotFound,
+            code: 404,
             message: "Not found".to_string(),
+            status: Code::NotFound,
             details: StatusDetails::default(),
         };
 
         let status2 = Status {
-            code: Code::NotFound,
+            code: 404,
             message: "Not found".to_string(),
+            status: Code::NotFound,
             details: StatusDetails::default(),
         };
 
         let status3 = Status {
-            code: Code::InvalidArgument,
+            code: 400,
             message: "Not found".to_string(),
+            status: Code::InvalidArgument,
             details: StatusDetails::default(),
         };
 
@@ -123,36 +140,43 @@ mod tests {
     // ============ Status Serde Tests ============
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_serialize_minimal() {
         let status = Status {
-            code: Code::Ok,
+            code: 200,
             message: String::new(),
+            status: Code::Ok,
             details: StatusDetails::default(),
         };
 
         let json = serde_json::to_string(&status).unwrap();
-        assert_eq!(json, r#"{"code":"OK"}"#);
+        assert_eq!(json, r#"{"code":200,"status":"OK"}"#);
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_serialize_with_message() {
         let status = Status {
-            code: Code::NotFound,
+            code: 404,
             message: "Resource not found".to_string(),
+            status: Code::NotFound,
             details: StatusDetails::default(),
         };
 
         let json = serde_json::to_string(&status).unwrap();
-        assert!(json.contains(r#""code":"NOT_FOUND""#));
+        assert!(json.contains(r#""code":404"#));
+        assert!(json.contains(r#""status":"NOT_FOUND""#));
         assert!(json.contains(r#""message":"Resource not found""#));
         assert!(!json.contains("details"));
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_serialize_full() {
         let status = Status {
-            code: Code::PermissionDenied,
+            code: 403,
             message: "Permission denied".to_string(),
+            status: Code::PermissionDenied,
             details: StatusDetails {
                 error_info: Some(
                     ErrorInfo::new("ACCESS_DENIED", "iam.example.com")
@@ -162,7 +186,8 @@ mod tests {
         };
 
         let json = serde_json::to_string(&status).unwrap();
-        assert!(json.contains(r#""code":"PERMISSION_DENIED""#));
+        assert!(json.contains(r#""code":403"#));
+        assert!(json.contains(r#""status":"PERMISSION_DENIED""#));
         assert!(json.contains(r#""message":"Permission denied""#));
         assert!(json.contains(r#""details""#));
         assert!(json.contains(r#""error_info""#));
@@ -170,19 +195,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_deserialize_minimal() {
-        let json = r#"{"code":"OK"}"#;
+        let json = r#"{"code":200,"status":"OK"}"#;
         let status: Status = serde_json::from_str(json).unwrap();
 
-        assert_eq!(status.code, Code::Ok);
+        assert_eq!(status.code, 200);
+        assert_eq!(status.status, Code::Ok);
         assert!(status.message.is_empty());
         assert!(status.details.is_empty());
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_deserialize_full() {
         let json = r#"{
-            "code": "NOT_FOUND",
+            "code": 404,
+            "status": "NOT_FOUND",
             "message": "User not found",
             "details": {
                 "error_info": {
@@ -196,7 +225,8 @@ mod tests {
         }"#;
 
         let status: Status = serde_json::from_str(json).unwrap();
-        assert_eq!(status.code, Code::NotFound);
+        assert_eq!(status.code, 404);
+        assert_eq!(status.status, Code::NotFound);
         assert_eq!(status.message, "User not found");
 
         let error_info = status.details.error_info.as_ref().unwrap();
@@ -209,10 +239,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_roundtrip() {
         let original = Status {
-            code: Code::ResourceExhausted,
+            code: 429,
             message: "Rate limit exceeded".to_string(),
+            status: Code::ResourceExhausted,
             details: StatusDetails {
                 error_info: Some(
                     ErrorInfo::new("RATE_LIMITED", "api.example.com")
@@ -305,35 +337,38 @@ mod tests {
     // ============ Status Code Mapping Tests ============
 
     #[test]
+    #[cfg(feature = "http")]
     fn test_status_common_codes() {
         // Test common gRPC status codes
         let codes = [
-            (Code::Ok, "OK"),
-            (Code::Cancelled, "CANCELLED"),
-            (Code::Unknown, "UNKNOWN"),
-            (Code::InvalidArgument, "INVALID_ARGUMENT"),
-            (Code::DeadlineExceeded, "DEADLINE_EXCEEDED"),
-            (Code::NotFound, "NOT_FOUND"),
-            (Code::AlreadyExists, "ALREADY_EXISTS"),
-            (Code::PermissionDenied, "PERMISSION_DENIED"),
-            (Code::ResourceExhausted, "RESOURCE_EXHAUSTED"),
-            (Code::FailedPrecondition, "FAILED_PRECONDITION"),
-            (Code::Aborted, "ABORTED"),
-            (Code::OutOfRange, "OUT_OF_RANGE"),
-            (Code::Unimplemented, "UNIMPLEMENTED"),
-            (Code::Internal, "INTERNAL"),
-            (Code::Unavailable, "UNAVAILABLE"),
-            (Code::DataLoss, "DATA_LOSS"),
-            (Code::Unauthenticated, "UNAUTHENTICATED"),
+            (Code::Ok, "OK", 200),
+            (Code::Cancelled, "CANCELLED", 499),
+            (Code::Unknown, "UNKNOWN", 500),
+            (Code::InvalidArgument, "INVALID_ARGUMENT", 400),
+            (Code::DeadlineExceeded, "DEADLINE_EXCEEDED", 504),
+            (Code::NotFound, "NOT_FOUND", 404),
+            (Code::AlreadyExists, "ALREADY_EXISTS", 409),
+            (Code::PermissionDenied, "PERMISSION_DENIED", 403),
+            (Code::ResourceExhausted, "RESOURCE_EXHAUSTED", 429),
+            (Code::FailedPrecondition, "FAILED_PRECONDITION", 400),
+            (Code::Aborted, "ABORTED", 409),
+            (Code::OutOfRange, "OUT_OF_RANGE", 400),
+            (Code::Unimplemented, "UNIMPLEMENTED", 501),
+            (Code::Internal, "INTERNAL", 500),
+            (Code::Unavailable, "UNAVAILABLE", 503),
+            (Code::DataLoss, "DATA_LOSS", 500),
+            (Code::Unauthenticated, "UNAUTHENTICATED", 401),
         ];
 
-        for (code, name) in codes {
+        for (status_code, name, http_code) in codes {
             let status = Status {
-                code,
+                code: http_code,
                 message: format!("Testing {}", name),
+                status: status_code,
                 details: StatusDetails::default(),
             };
-            assert_eq!(status.code, code);
+            assert_eq!(status.code, http_code);
+            assert_eq!(status.status, status_code);
         }
     }
 }
