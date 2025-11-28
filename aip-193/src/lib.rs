@@ -10,6 +10,11 @@ pub mod __private {
 }
 
 mod code;
+#[cfg(feature = "http")]
+mod http_impl;
+#[cfg(feature = "axum")]
+mod axum_impl;
+
 mod error_details;
 mod status;
 mod traits;

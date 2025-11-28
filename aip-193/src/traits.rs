@@ -167,7 +167,7 @@ mod tests {
 
         let status: Status = err.into();
 
-        assert_eq!(status.code, 5); // NOT_FOUND = 5
+        assert_eq!(status.code, Code::NotFound);
         assert_eq!(status.message, "Resource not found");
 
         let error_info = status.details.error_info.as_ref().unwrap();
@@ -185,7 +185,7 @@ mod tests {
 
         let status: Status = err.into();
 
-        assert_eq!(status.code, 5); // NOT_FOUND = 5
+        assert_eq!(status.code, Code::NotFound);
         assert!(status.message.contains("user_123"));
         assert!(status.message.contains("doc_456"));
 
@@ -205,9 +205,9 @@ mod tests {
     #[test]
     fn test_from_all_error_kinds() {
         let test_cases = [
-            (ErrorKind::NotFound, 5, "NOT_FOUND"),
-            (ErrorKind::InvalidArgument, 3, "INVALID_ARGUMENT"),
-            (ErrorKind::PermissionDenied, 7, "PERMISSION_DENIED"),
+            (ErrorKind::NotFound, Code::NotFound, "NOT_FOUND"),
+            (ErrorKind::InvalidArgument, Code::InvalidArgument, "INVALID_ARGUMENT"),
+            (ErrorKind::PermissionDenied, Code::PermissionDenied, "PERMISSION_DENIED"),
         ];
 
         for (kind, expected_code, _code_name) in test_cases {
@@ -225,7 +225,7 @@ mod tests {
 
         let status = Status::from(err);
 
-        assert_eq!(status.code, 3); // INVALID_ARGUMENT = 3
+        assert_eq!(status.code, Code::InvalidArgument);
         assert_eq!(status.message, "Invalid argument provided");
     }
 
@@ -254,7 +254,7 @@ mod tests {
         let status: Status = err.into();
         let json = serde_json::to_string(&status).unwrap();
 
-        assert!(json.contains(r#""code":5"#));
+        assert!(json.contains(r#""code":"NOT_FOUND""#));
         assert!(json.contains(r#""reason":"ACCESS_DENIED""#));
         assert!(json.contains(r#""domain":"authz.example.com""#));
         assert!(json.contains(r#""user_id":"usr_001""#));

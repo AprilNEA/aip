@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ErrorInfo;
+use crate::{Code, ErrorInfo};
 
 /// The `Status` type defines a logical error model.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
     /// The status code (google.rpc.Code enum value).
-    pub code: i32,
+    pub code: Code,
 
     /// A developer-facing error message in English.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -40,8 +40,12 @@ mod tests {
 
     #[test]
     fn test_status_default() {
-        let status = Status::default();
-        assert_eq!(status.code, 0);
+        let status = Status {
+            code: Code::Ok,
+            message: String::new(),
+            details: StatusDetails::default(),
+        };
+        assert_eq!(status.code, Code::Ok);
         assert!(status.message.is_empty());
         assert!(status.details.is_empty());
     }
@@ -49,22 +53,22 @@ mod tests {
     #[test]
     fn test_status_with_code_and_message() {
         let status = Status {
-            code: 5, // NOT_FOUND
+            code: Code::NotFound,
             message: "User not found".to_string(),
             details: StatusDetails::default(),
         };
 
-        assert_eq!(status.code, 5);
+        assert_eq!(status.code, Code::NotFound);
         assert_eq!(status.message, "User not found");
     }
 
     #[test]
     fn test_status_with_error_info() {
-        let error_info = ErrorInfo::new("USER_NOT_FOUND", "myapp.example.com")
-            .with_metadata("user_id", "123");
+        let error_info =
+            ErrorInfo::new("USER_NOT_FOUND", "myapp.example.com").with_metadata("user_id", "123");
 
         let status = Status {
-            code: 5,
+            code: Code::NotFound,
             message: "User not found".to_string(),
             details: StatusDetails {
                 error_info: Some(error_info),
@@ -81,7 +85,7 @@ mod tests {
     #[test]
     fn test_status_clone() {
         let status = Status {
-            code: 3,
+            code: Code::InvalidArgument,
             message: "Invalid argument".to_string(),
             details: StatusDetails {
                 error_info: Some(ErrorInfo::new("INVALID_EMAIL", "auth.example.com")),
@@ -95,19 +99,19 @@ mod tests {
     #[test]
     fn test_status_equality() {
         let status1 = Status {
-            code: 5,
+            code: Code::NotFound,
             message: "Not found".to_string(),
             details: StatusDetails::default(),
         };
 
         let status2 = Status {
-            code: 5,
+            code: Code::NotFound,
             message: "Not found".to_string(),
             details: StatusDetails::default(),
         };
 
         let status3 = Status {
-            code: 3,
+            code: Code::InvalidArgument,
             message: "Not found".to_string(),
             details: StatusDetails::default(),
         };
@@ -121,25 +125,25 @@ mod tests {
     #[test]
     fn test_status_serialize_minimal() {
         let status = Status {
-            code: 0,
+            code: Code::Ok,
             message: String::new(),
             details: StatusDetails::default(),
         };
 
         let json = serde_json::to_string(&status).unwrap();
-        assert_eq!(json, r#"{"code":0}"#);
+        assert_eq!(json, r#"{"code":"OK"}"#);
     }
 
     #[test]
     fn test_status_serialize_with_message() {
         let status = Status {
-            code: 5,
+            code: Code::NotFound,
             message: "Resource not found".to_string(),
             details: StatusDetails::default(),
         };
 
         let json = serde_json::to_string(&status).unwrap();
-        assert!(json.contains(r#""code":5"#));
+        assert!(json.contains(r#""code":"NOT_FOUND""#));
         assert!(json.contains(r#""message":"Resource not found""#));
         assert!(!json.contains("details"));
     }
@@ -147,7 +151,7 @@ mod tests {
     #[test]
     fn test_status_serialize_full() {
         let status = Status {
-            code: 7,
+            code: Code::PermissionDenied,
             message: "Permission denied".to_string(),
             details: StatusDetails {
                 error_info: Some(
@@ -158,7 +162,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&status).unwrap();
-        assert!(json.contains(r#""code":7"#));
+        assert!(json.contains(r#""code":"PERMISSION_DENIED""#));
         assert!(json.contains(r#""message":"Permission denied""#));
         assert!(json.contains(r#""details""#));
         assert!(json.contains(r#""error_info""#));
@@ -167,10 +171,10 @@ mod tests {
 
     #[test]
     fn test_status_deserialize_minimal() {
-        let json = r#"{"code":0}"#;
+        let json = r#"{"code":"OK"}"#;
         let status: Status = serde_json::from_str(json).unwrap();
 
-        assert_eq!(status.code, 0);
+        assert_eq!(status.code, Code::Ok);
         assert!(status.message.is_empty());
         assert!(status.details.is_empty());
     }
@@ -178,7 +182,7 @@ mod tests {
     #[test]
     fn test_status_deserialize_full() {
         let json = r#"{
-            "code": 5,
+            "code": "NOT_FOUND",
             "message": "User not found",
             "details": {
                 "error_info": {
@@ -192,7 +196,7 @@ mod tests {
         }"#;
 
         let status: Status = serde_json::from_str(json).unwrap();
-        assert_eq!(status.code, 5);
+        assert_eq!(status.code, Code::NotFound);
         assert_eq!(status.message, "User not found");
 
         let error_info = status.details.error_info.as_ref().unwrap();
@@ -207,7 +211,7 @@ mod tests {
     #[test]
     fn test_status_roundtrip() {
         let original = Status {
-            code: 8,
+            code: Code::ResourceExhausted,
             message: "Rate limit exceeded".to_string(),
             details: StatusDetails {
                 error_info: Some(
@@ -304,23 +308,23 @@ mod tests {
     fn test_status_common_codes() {
         // Test common gRPC status codes
         let codes = [
-            (0, "OK"),
-            (1, "CANCELLED"),
-            (2, "UNKNOWN"),
-            (3, "INVALID_ARGUMENT"),
-            (4, "DEADLINE_EXCEEDED"),
-            (5, "NOT_FOUND"),
-            (6, "ALREADY_EXISTS"),
-            (7, "PERMISSION_DENIED"),
-            (8, "RESOURCE_EXHAUSTED"),
-            (9, "FAILED_PRECONDITION"),
-            (10, "ABORTED"),
-            (11, "OUT_OF_RANGE"),
-            (12, "UNIMPLEMENTED"),
-            (13, "INTERNAL"),
-            (14, "UNAVAILABLE"),
-            (15, "DATA_LOSS"),
-            (16, "UNAUTHENTICATED"),
+            (Code::Ok, "OK"),
+            (Code::Cancelled, "CANCELLED"),
+            (Code::Unknown, "UNKNOWN"),
+            (Code::InvalidArgument, "INVALID_ARGUMENT"),
+            (Code::DeadlineExceeded, "DEADLINE_EXCEEDED"),
+            (Code::NotFound, "NOT_FOUND"),
+            (Code::AlreadyExists, "ALREADY_EXISTS"),
+            (Code::PermissionDenied, "PERMISSION_DENIED"),
+            (Code::ResourceExhausted, "RESOURCE_EXHAUSTED"),
+            (Code::FailedPrecondition, "FAILED_PRECONDITION"),
+            (Code::Aborted, "ABORTED"),
+            (Code::OutOfRange, "OUT_OF_RANGE"),
+            (Code::Unimplemented, "UNIMPLEMENTED"),
+            (Code::Internal, "INTERNAL"),
+            (Code::Unavailable, "UNAVAILABLE"),
+            (Code::DataLoss, "DATA_LOSS"),
+            (Code::Unauthenticated, "UNAUTHENTICATED"),
         ];
 
         for (code, name) in codes {
