@@ -127,19 +127,46 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
     }
 }
 
+fn get_axum_path() -> proc_macro2::TokenStream {
+    if let Ok(found) = crate_name("axum") {
+        return match found {
+            FoundCrate::Itself => quote!(crate),
+            FoundCrate::Name(name) => {
+                let ident = Ident::new(&name, proc_macro2::Span::call_site());
+                quote!(::#ident)
+            }
+        };
+    }
+    
+    if let Ok(found) = crate_name("axum-core") {
+        return match found {
+            FoundCrate::Itself => quote!(crate),
+            FoundCrate::Name(name) => {
+                let ident = Ident::new(&name, proc_macro2::Span::call_site());
+                quote!(::#ident)
+            }
+        };
+    }
+    
+    quote!(::axum)
+}
+
 fn generate_into_response_impl(
     name: &Ident,
     krate: &proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
+    let axum = get_axum_path();
+    
     quote! {
-        impl ::axum_core::response::IntoResponse for #name {
-            fn into_response(self) -> ::axum_core::response::Response {
+        impl #axum::response::IntoResponse for #name {
+            fn into_response(self) -> #axum::response::Response {
                 let status: #krate::Status = #krate::IntoStatus::into_status(self);
-                ::axum_core::response::IntoResponse::into_response(status)
+                #axum::response::IntoResponse::into_response(status)
             }
         }
     }
 }
+
 
 fn generate_code_arms(
     enum_name: &Ident, 
