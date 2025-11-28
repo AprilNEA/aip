@@ -5,15 +5,16 @@ pub use aip_193_derive::IntoStatus;
 
 #[doc(hidden)]
 pub mod __private {
-    pub use super::{Code, IntoStatus};
+    pub use super::Code;
+    pub use super::traits::IntoStatus;
     pub use std::collections::HashMap;
 }
 
+#[cfg(feature = "axum")]
+mod axum_impl;
 mod code;
 #[cfg(feature = "http")]
 mod http_impl;
-#[cfg(feature = "axum")]
-mod axum_impl;
 
 mod error_details;
 mod status;
