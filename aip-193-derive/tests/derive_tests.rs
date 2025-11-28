@@ -1,12 +1,13 @@
 //! Integration tests for aip-193-derive crate
 //!
 //! These tests verify that the `#[derive(IntoStatus)]` macro generates
-//! correct implementations of the `IntoStatus` trait.
+//! correct implementations of the `IntoStatus` trait and optionally
+//! the `IntoResponse` trait for axum integration.
 
 #![allow(dead_code)]
+#![allow(unused_variables)]
 
 use aip_193::{Code, IntoStatus, Status};
-use aip_193_derive::IntoStatus;
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 
@@ -185,7 +186,10 @@ fn test_struct_variant_many_metadata_fields() {
     };
     let metadata = err.metadata();
     assert_eq!(metadata.get("user_id"), Some(&"user_456".to_string()));
-    assert_eq!(metadata.get("resource"), Some(&"documents/secret".to_string()));
+    assert_eq!(
+        metadata.get("resource"),
+        Some(&"documents/secret".to_string())
+    );
     assert_eq!(metadata.get("action"), Some(&"read".to_string()));
     assert_eq!(metadata.len(), 3);
 }
@@ -288,7 +292,10 @@ fn test_mixed_variants() {
     };
     assert_eq!(err.code(), Code::Unavailable);
     let metadata = err.metadata();
-    assert_eq!(metadata.get("service_name"), Some(&"payment-service".to_string()));
+    assert_eq!(
+        metadata.get("service_name"),
+        Some(&"payment-service".to_string())
+    );
     assert_eq!(metadata.get("retry_in_ms"), Some(&"5000".to_string()));
 }
 
@@ -304,13 +311,16 @@ fn test_into_status_conversion() {
 
     let status: Status = err.into();
 
-    assert_eq!(status.code, Code::NotFound as i32);
+    assert_eq!(status.code, Code::NotFound);
     assert_eq!(status.message, "User not found");
 
     let error_info = status.details.error_info.as_ref().unwrap();
     assert_eq!(error_info.reason, "USER_NOT_FOUND");
     assert_eq!(error_info.domain, "users.myapp.com");
-    assert_eq!(error_info.metadata.get("user_id"), Some(&"usr_abc".to_string()));
+    assert_eq!(
+        error_info.metadata.get("user_id"),
+        Some(&"usr_abc".to_string())
+    );
 }
 
 #[test]
@@ -318,7 +328,7 @@ fn test_status_from_conversion() {
     let err = SimpleError::InternalError;
     let status = Status::from(err);
 
-    assert_eq!(status.code, Code::Internal as i32);
+    assert_eq!(status.code, Code::Internal);
     assert_eq!(status.message, "InternalError");
 
     let error_info = status.details.error_info.as_ref().unwrap();
@@ -340,7 +350,7 @@ fn test_status_json_serialization() {
     let status: Status = err.into();
     let json = serde_json::to_string(&status).unwrap();
 
-    assert!(json.contains(r#""code":3"#)); // InvalidArgument = 3
+    assert!(json.contains(r#""code":"INVALID_ARGUMENT""#)); // Code is serialized as string
     assert!(json.contains(r#""message":"Invalid email format""#));
     assert!(json.contains(r#""reason":"INVALID_EMAIL""#));
     assert!(json.contains(r#""domain":"users.myapp.com""#));
@@ -576,7 +586,7 @@ fn test_realistic_api_errors() {
         token_type: "Bearer".to_string(),
     };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::Unauthenticated as i32);
+    assert_eq!(status.code, Code::Unauthenticated);
     let info = status.details.error_info.unwrap();
     assert_eq!(info.metadata.get("token_type"), Some(&"Bearer".to_string()));
 
@@ -586,7 +596,7 @@ fn test_realistic_api_errors() {
         constraint: "must be a valid email address".to_string(),
     };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::InvalidArgument as i32);
+    assert_eq!(status.code, Code::InvalidArgument);
     let info = status.details.error_info.unwrap();
     assert_eq!(info.metadata.get("field"), Some(&"email".to_string()));
     assert_eq!(
@@ -600,15 +610,21 @@ fn test_realistic_api_errors() {
         id: "usr_12345".to_string(),
     };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::NotFound as i32);
+    assert_eq!(status.code, Code::NotFound);
     let info = status.details.error_info.unwrap();
-    assert_eq!(info.metadata.get("resource_type"), Some(&"User".to_string()));
-    assert_eq!(info.metadata.get("resource_id"), Some(&"usr_12345".to_string()));
+    assert_eq!(
+        info.metadata.get("resource_type"),
+        Some(&"User".to_string())
+    );
+    assert_eq!(
+        info.metadata.get("resource_id"),
+        Some(&"usr_12345".to_string())
+    );
 
     // Rate limiting
     let err = ApiError::RateLimited { retry_after: 30 };
     let status: Status = err.into();
-    assert_eq!(status.code, Code::ResourceExhausted as i32);
+    assert_eq!(status.code, Code::ResourceExhausted);
     let info = status.details.error_info.unwrap();
     assert_eq!(
         info.metadata.get("retry_after_seconds"),
@@ -627,10 +643,323 @@ fn test_api_error_json_response() {
     let json = serde_json::to_string_pretty(&status).unwrap();
 
     // This is what an API would return
-    assert!(json.contains(r#""code": 7"#)); // PERMISSION_DENIED
+    assert!(json.contains(r#""code": "PERMISSION_DENIED""#)); // Code is serialized as string
     assert!(json.contains(r#""message": "Insufficient permissions""#));
     assert!(json.contains(r#""reason": "INSUFFICIENT_PERMISSIONS""#));
     assert!(json.contains(r#""domain": "api.mycompany.com""#));
     assert!(json.contains(r#""required_permission": "documents.write""#));
     assert!(json.contains(r#""resource": "projects/123/documents/456""#));
+}
+
+// ============================================================================
+// IntoResponse Integration Tests
+// ============================================================================
+
+mod into_response_tests {
+    use super::*;
+    use axum::response::IntoResponse;
+    use axum::http::StatusCode as HttpStatus;
+
+    /// Simple error enum with IntoResponse enabled
+    #[derive(Debug, Clone, IntoStatus, AsRefStr)]
+    #[status(domain = "response.example.com", into_response = true)]
+    #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+    enum ResponseError {
+        #[status(code = NotFound, message = "Resource not found")]
+        NotFound,
+
+        #[status(code = InvalidArgument, message = "Invalid input")]
+        BadRequest,
+
+        #[status(code = Internal, message = "Internal error")]
+        InternalError,
+    }
+
+    /// Error enum with metadata and IntoResponse
+    #[derive(Debug, Clone, IntoStatus, AsRefStr)]
+    #[status(domain = "api.response.com", into_response = true)]
+    #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+    enum ApiResponseError {
+        #[status(code = NotFound, message = "User not found")]
+        UserNotFound {
+            #[status(metadata)]
+            user_id: String,
+        },
+
+        #[status(code = InvalidArgument, message = "Validation failed")]
+        ValidationError {
+            #[status(metadata)]
+            field: String,
+            #[status(metadata)]
+            reason: String,
+        },
+
+        #[status(code = Unauthenticated, message = "Authentication required")]
+        Unauthorized,
+
+        #[status(code = PermissionDenied, message = "Access denied")]
+        Forbidden {
+            #[status(metadata)]
+            resource: String,
+        },
+
+        #[status(code = ResourceExhausted, message = "Rate limit exceeded")]
+        RateLimited {
+            #[status(metadata, metadata_key = "retry_after_seconds")]
+            retry_after: u32,
+        },
+    }
+
+    #[test]
+    fn test_into_response_trait_exists() {
+        // This test verifies that IntoResponse is implemented
+        fn assert_into_response<T: IntoResponse>() {}
+        assert_into_response::<ResponseError>();
+        assert_into_response::<ApiResponseError>();
+    }
+
+    #[test]
+    fn test_into_response_basic() {
+        let err = ResponseError::NotFound;
+        let response = err.into_response();
+
+        // Response should be created successfully with correct HTTP status
+        assert_eq!(response.status(), HttpStatus::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_into_response_with_metadata() {
+        let err = ApiResponseError::UserNotFound {
+            user_id: "user_123".to_string(),
+        };
+        let response = err.into_response();
+
+        // Response should be created successfully with correct HTTP status
+        assert_eq!(response.status(), HttpStatus::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_into_response_preserves_status_data() {
+        let err = ApiResponseError::ValidationError {
+            field: "email".to_string(),
+            reason: "invalid format".to_string(),
+        };
+
+        // Convert to Status first to verify data
+        let status: Status = err.clone().into();
+        assert_eq!(status.code, Code::InvalidArgument);
+        assert_eq!(status.message, "Validation failed");
+
+        let error_info = status.details.error_info.as_ref().unwrap();
+        assert_eq!(error_info.reason, "VALIDATION_ERROR");
+        assert_eq!(error_info.domain, "api.response.com");
+        assert_eq!(error_info.metadata.get("field"), Some(&"email".to_string()));
+        assert_eq!(error_info.metadata.get("reason"), Some(&"invalid format".to_string()));
+
+        // Now verify IntoResponse works with correct HTTP status
+        let response = err.into_response();
+        assert_eq!(response.status(), HttpStatus::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_into_response_all_error_codes() {
+        let test_cases = vec![
+            (ApiResponseError::UserNotFound {
+                user_id: "123".to_string(),
+            }, HttpStatus::NOT_FOUND),
+            (ApiResponseError::ValidationError {
+                field: "name".to_string(),
+                reason: "too short".to_string(),
+            }, HttpStatus::BAD_REQUEST),
+            (ApiResponseError::Unauthorized, HttpStatus::UNAUTHORIZED),
+            (ApiResponseError::Forbidden {
+                resource: "admin".to_string(),
+            }, HttpStatus::FORBIDDEN),
+            (ApiResponseError::RateLimited { retry_after: 60 }, HttpStatus::TOO_MANY_REQUESTS),
+        ];
+
+        for (err, expected_status) in test_cases {
+            let response = err.into_response();
+            // All responses should be created successfully with correct HTTP status
+            assert_eq!(response.status(), expected_status);
+        }
+    }
+
+    #[test]
+    fn test_into_response_can_be_returned_from_handler() {
+        // Simulate a handler that returns Result<T, E> where E: IntoResponse
+        fn mock_handler(should_fail: bool) -> Result<String, ApiResponseError> {
+            if should_fail {
+                Err(ApiResponseError::Unauthorized)
+            } else {
+                Ok("Success".to_string())
+            }
+        }
+
+        // Error case
+        let result = mock_handler(true);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let _response = e.into_response();
+            // Response created successfully
+        }
+
+        // Success case
+        let result = mock_handler(false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_into_response_with_custom_metadata_keys() {
+        let err = ApiResponseError::RateLimited { retry_after: 120 };
+
+        // Verify the status conversion preserves custom keys
+        let status: Status = err.clone().into();
+        let error_info = status.details.error_info.as_ref().unwrap();
+        assert_eq!(
+            error_info.metadata.get("retry_after_seconds"),
+            Some(&"120".to_string())
+        );
+
+        // Verify IntoResponse works with correct HTTP status
+        let response = err.into_response();
+        assert_eq!(response.status(), HttpStatus::TOO_MANY_REQUESTS);
+    }
+
+    /// Test without IntoResponse to ensure it's not generated by default
+    #[derive(Debug, Clone, IntoStatus, AsRefStr)]
+    #[status(domain = "noresponse.example.com")]
+    #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+    enum NoResponseError {
+        #[status(code = NotFound)]
+        NotFound,
+    }
+
+    #[test]
+    fn test_into_response_not_generated_by_default() {
+        // This should compile, showing IntoStatus is implemented
+        let err = NoResponseError::NotFound;
+        let _status: Status = err.into();
+
+        // The following would NOT compile (uncomment to verify):
+        // let _response = NoResponseError::NotFound.into_response();
+        // error[E0599]: no method named `into_response` found
+    }
+
+    /// Complex real-world error with IntoResponse
+    #[derive(Debug, Clone, IntoStatus, AsRefStr, Serialize, Deserialize)]
+    #[status(domain = "production.api.com", into_response = true)]
+    #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+    enum ProductionError {
+        #[status(code = InvalidArgument, message = "Invalid request body")]
+        InvalidRequestBody {
+            #[status(metadata)]
+            field: String,
+            #[status(metadata)]
+            expected_type: String,
+        },
+
+        #[status(code = NotFound, message = "Endpoint not found")]
+        EndpointNotFound {
+            #[status(metadata)]
+            path: String,
+            #[status(metadata)]
+            method: String,
+        },
+
+        #[status(code = Unauthenticated, message = "Token expired")]
+        TokenExpired {
+            #[status(metadata, metadata_key = "expired_at")]
+            expiration_time: String,
+        },
+
+        #[status(code = PermissionDenied, message = "Insufficient role")]
+        InsufficientRole {
+            #[status(metadata, metadata_key = "required_role")]
+            required: String,
+            #[status(metadata, metadata_key = "current_role")]
+            current: String,
+        },
+
+        #[status(code = ResourceExhausted, message = "Quota exceeded")]
+        QuotaExceeded {
+            #[status(metadata)]
+            quota_type: String,
+            #[status(metadata)]
+            limit: u64,
+            #[status(metadata)]
+            current: u64,
+        },
+
+        #[status(code = Internal, message = "Database connection failed")]
+        DatabaseError,
+
+        #[status(code = Unavailable, message = "Service maintenance")]
+        Maintenance {
+            #[status(metadata, metadata_key = "estimated_completion")]
+            completion_time: String,
+        },
+    }
+
+    #[test]
+    fn test_production_error_into_response() {
+        let test_cases = vec![
+            (ProductionError::InvalidRequestBody {
+                field: "age".to_string(),
+                expected_type: "integer".to_string(),
+            }, HttpStatus::BAD_REQUEST),
+            (ProductionError::EndpointNotFound {
+                path: "/api/v2/users".to_string(),
+                method: "POST".to_string(),
+            }, HttpStatus::NOT_FOUND),
+            (ProductionError::TokenExpired {
+                expiration_time: "2024-01-01T00:00:00Z".to_string(),
+            }, HttpStatus::UNAUTHORIZED),
+            (ProductionError::InsufficientRole {
+                required: "admin".to_string(),
+                current: "user".to_string(),
+            }, HttpStatus::FORBIDDEN),
+            (ProductionError::QuotaExceeded {
+                quota_type: "api_calls".to_string(),
+                limit: 1000,
+                current: 1001,
+            }, HttpStatus::TOO_MANY_REQUESTS),
+            (ProductionError::DatabaseError, HttpStatus::INTERNAL_SERVER_ERROR),
+            (ProductionError::Maintenance {
+                completion_time: "2024-01-01T02:00:00Z".to_string(),
+            }, HttpStatus::SERVICE_UNAVAILABLE),
+        ];
+
+        for (err, expected_status) in test_cases {
+            // Convert to Status to verify all data is preserved
+            let status: Status = err.clone().into();
+            assert!(status.details.error_info.is_some());
+
+            // Convert to Response with correct HTTP status
+            let response = err.into_response();
+            assert_eq!(response.status(), expected_status);
+        }
+    }
+
+    #[test]
+    fn test_production_error_response_chain() {
+        // Simulate error propagation in a handler chain
+        fn database_operation() -> Result<String, ProductionError> {
+            Err(ProductionError::DatabaseError)
+        }
+
+        fn api_handler() -> Result<String, ProductionError> {
+            database_operation()?;
+            Ok("Success".to_string())
+        }
+
+        match api_handler() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                // Verify error can be converted to response with correct HTTP status
+                let response = e.into_response();
+                assert_eq!(response.status(), HttpStatus::INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
 }

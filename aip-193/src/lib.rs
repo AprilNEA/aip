@@ -6,6 +6,7 @@ pub use aip_193_derive::IntoStatus;
 #[doc(hidden)]
 pub mod __private {
     pub use super::Code;
+    pub use super::status::Status;
     pub use super::traits::IntoStatus;
     pub use std::collections::HashMap;
 }

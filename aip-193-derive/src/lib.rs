@@ -156,17 +156,17 @@ fn generate_into_response_impl(
     krate: &proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let axum = get_axum_path();
-    
+
     quote! {
         impl #axum::response::IntoResponse for #name {
             fn into_response(self) -> #axum::response::Response {
-                let status: #krate::Status = #krate::__private::IntoStatus::into_status(self);
-                #axum::response::IntoResponse::into_response(status)
+                use #krate::__private::IntoStatus as _;
+                let status = Status::from(self);
+                <#krate::__private::Status as #axum::response::IntoResponse>::into_response(status)
             }
         }
     }
 }
-
 
 fn generate_code_arms(
     enum_name: &Ident,

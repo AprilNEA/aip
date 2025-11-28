@@ -100,7 +100,10 @@ mod tests {
         }
 
         fn message(&self) -> String {
-            format!("User {} cannot access resource {}", self.user_id, self.resource_id)
+            format!(
+                "User {} cannot access resource {}",
+                self.user_id, self.resource_id
+            )
         }
 
         fn reason(&self) -> &str {
@@ -206,8 +209,16 @@ mod tests {
     fn test_from_all_error_kinds() {
         let test_cases = [
             (ErrorKind::NotFound, Code::NotFound, "NOT_FOUND"),
-            (ErrorKind::InvalidArgument, Code::InvalidArgument, "INVALID_ARGUMENT"),
-            (ErrorKind::PermissionDenied, Code::PermissionDenied, "PERMISSION_DENIED"),
+            (
+                ErrorKind::InvalidArgument,
+                Code::InvalidArgument,
+                "INVALID_ARGUMENT",
+            ),
+            (
+                ErrorKind::PermissionDenied,
+                Code::PermissionDenied,
+                "PERMISSION_DENIED",
+            ),
         ];
 
         for (kind, expected_code, _code_name) in test_cases {
@@ -355,6 +366,9 @@ mod tests {
         let status: Status = LargeMetadataError.into();
         let error_info = status.details.error_info.as_ref().unwrap();
         assert_eq!(error_info.metadata.len(), 100);
-        assert_eq!(error_info.metadata.get("key_50"), Some(&"value_50".to_string()));
+        assert_eq!(
+            error_info.metadata.get("key_50"),
+            Some(&"value_50".to_string())
+        );
     }
 }
