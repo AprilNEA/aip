@@ -1,8 +1,8 @@
-use darling::{ast, FromDeriveInput, FromField, FromVariant};
+use darling::{FromDeriveInput, FromField, FromVariant, ast};
 use proc_macro::TokenStream;
-use proc_macro_crate::{crate_name, FoundCrate};
+use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Ident};
+use syn::{DeriveInput, Ident, parse_macro_input};
 
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(status), supports(enum_any))]
@@ -44,7 +44,7 @@ fn get_crate_path() -> proc_macro2::TokenStream {
             }
         };
     }
-    
+
     if let Ok(found) = crate_name("aip-193") {
         return match found {
             FoundCrate::Itself => quote!(crate),
@@ -54,14 +54,14 @@ fn get_crate_path() -> proc_macro2::TokenStream {
             }
         };
     }
-    
+
     quote!(::aip_193)
 }
 
 #[proc_macro_derive(IntoStatus, attributes(status))]
 pub fn derive_into_status(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    
+
     let parsed = match StatusInput::from_derive_input(&input) {
         Ok(v) => v,
         Err(e) => return e.write_errors().into(),
@@ -86,7 +86,7 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
     let metadata_arms = generate_metadata_arms(name, variants);
 
     let into_status_impl = quote! {
-        impl #krate::IntoStatus for #name {
+        impl #krate::__private::IntoStatus for #name {
             fn code(&self) -> #krate::Code {
                 match self {
                     #(#code_arms),*
@@ -107,7 +107,7 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
                 #domain
             }
 
-            fn metadata(&self) -> ::std::collections::HashMap<::std::string::String, ::std::string::String> {
+            fn metadata(&self) -> #krate::__private::HashMap<::std::string::String, ::std::string::String> {
                 match self {
                     #(#metadata_arms),*
                 }
@@ -137,7 +137,7 @@ fn get_axum_path() -> proc_macro2::TokenStream {
             }
         };
     }
-    
+
     if let Ok(found) = crate_name("axum-core") {
         return match found {
             FoundCrate::Itself => quote!(crate),
@@ -147,7 +147,7 @@ fn get_axum_path() -> proc_macro2::TokenStream {
             }
         };
     }
-    
+
     quote!(::axum)
 }
 
@@ -160,7 +160,7 @@ fn generate_into_response_impl(
     quote! {
         impl #axum::response::IntoResponse for #name {
             fn into_response(self) -> #axum::response::Response {
-                let status: #krate::Status = #krate::IntoStatus::into_status(self);
+                let status: #krate::Status = #krate::__private::IntoStatus::into_status(self);
                 #axum::response::IntoResponse::into_response(status)
             }
         }
@@ -169,51 +169,58 @@ fn generate_into_response_impl(
 
 
 fn generate_code_arms(
-    enum_name: &Ident, 
+    enum_name: &Ident,
     variants: &[StatusVariant],
     krate: &proc_macro2::TokenStream,
 ) -> Vec<proc_macro2::TokenStream> {
-    variants.iter().map(|v| {
-        let code = &v.code;
-        let pattern = generate_pattern(enum_name, v);
-        quote! {
-            #pattern => #krate::Code::#code
-        }
-    }).collect()
+    variants
+        .iter()
+        .map(|v| {
+            let code = &v.code;
+            let pattern = generate_pattern(enum_name, v);
+            quote! {
+                #pattern => #krate::Code::#code
+            }
+        })
+        .collect()
 }
 
 fn generate_message_arms(
-    enum_name: &Ident, 
+    enum_name: &Ident,
     variants: &[StatusVariant],
 ) -> Vec<proc_macro2::TokenStream> {
-    variants.iter().map(|v| {
-        let variant_name = &v.ident;
-        let pattern = generate_pattern(enum_name, v);
-        
-        let message_expr = if let Some(template) = &v.message {
-            parse_message_template(template, &v.fields)
-        } else {
-            let default_msg = format!("{}", variant_name);
-            quote! { #default_msg.to_string() }
-        };
-        
-        quote! {
-            #pattern => #message_expr
-        }
-    }).collect()
+    variants
+        .iter()
+        .map(|v| {
+            let variant_name = &v.ident;
+            let pattern = generate_pattern(enum_name, v);
+
+            let message_expr = if let Some(template) = &v.message {
+                parse_message_template(template, &v.fields)
+            } else {
+                let default_msg = format!("{}", variant_name);
+                quote! { #default_msg.to_string() }
+            };
+
+            quote! {
+                #pattern => #message_expr
+            }
+        })
+        .collect()
 }
 
 fn parse_message_template(
     template: &str,
     fields: &ast::Fields<StatusField>,
 ) -> proc_macro2::TokenStream {
-    let field_names: Vec<String> = fields.iter()
+    let field_names: Vec<String> = fields
+        .iter()
         .filter_map(|f| f.ident.as_ref().map(|i| i.to_string()))
         .collect();
-    
+
     let mut format_str = String::new();
     let mut args: Vec<proc_macro2::TokenStream> = Vec::new();
-    
+
     let mut chars = template.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '{' {
@@ -225,7 +232,7 @@ fn parse_message_template(
                 }
                 field_name.push(chars.next().unwrap());
             }
-            
+
             if field_names.contains(&field_name) {
                 format_str.push_str("{}");
                 let field_ident = Ident::new(&field_name, proc_macro2::Span::call_site());
@@ -239,7 +246,7 @@ fn parse_message_template(
             format_str.push(c);
         }
     }
-    
+
     if args.is_empty() {
         quote! { #template.to_string() }
     } else {
@@ -248,44 +255,53 @@ fn parse_message_template(
 }
 
 fn generate_metadata_arms(
-    enum_name: &Ident, 
+    enum_name: &Ident,
     variants: &[StatusVariant],
 ) -> Vec<proc_macro2::TokenStream> {
-    variants.iter().map(|v| {
-        let pattern = generate_pattern(enum_name, v);
-        
-        let metadata_fields: Vec<_> = v.fields.iter()
-            .filter(|f| f.metadata)
-            .filter_map(|f| {
-                let field_name = f.ident.as_ref()?;
-                let key = f.metadata_key.clone()
-                    .unwrap_or_else(|| field_name.to_string());
-                Some(quote! {
-                    map.insert(#key.to_string(), #field_name.to_string());
-                })
-            })
-            .collect();
+    variants
+        .iter()
+        .map(|v| {
+            let pattern = generate_pattern(enum_name, v);
 
-        quote! {
-            #pattern => {
-                #[allow(unused_mut)]
-                let mut map = ::std::collections::HashMap::new();
-                #(#metadata_fields)*
-                map
+            let metadata_fields: Vec<_> = v
+                .fields
+                .iter()
+                .filter(|f| f.metadata)
+                .filter_map(|f| {
+                    let field_name = f.ident.as_ref()?;
+                    let key = f
+                        .metadata_key
+                        .clone()
+                        .unwrap_or_else(|| field_name.to_string());
+                    Some(quote! {
+                        map.insert(#key.to_string(), #field_name.to_string());
+                    })
+                })
+                .collect();
+
+            quote! {
+                #pattern => {
+                    #[allow(unused_mut)]
+                    let mut map = ::std::collections::HashMap::new();
+                    #(#metadata_fields)*
+                    map
+                }
             }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 fn generate_pattern(enum_name: &Ident, variant: &StatusVariant) -> proc_macro2::TokenStream {
     let variant_name = &variant.ident;
-    
+
     match &variant.fields.style {
         ast::Style::Unit => {
             quote! { #enum_name::#variant_name }
         }
         ast::Style::Struct => {
-            let field_names: Vec<_> = variant.fields.iter()
+            let field_names: Vec<_> = variant
+                .fields
+                .iter()
                 .filter_map(|f| f.ident.as_ref())
                 .collect();
             quote! { #enum_name::#variant_name { #(#field_names),* } }

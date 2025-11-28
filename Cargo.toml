@@ -20,8 +20,9 @@ repository = { workspace = true }
 
 [features]
 default = []
+derive = ["aip-193/derive"]
 
-axum = ["aip-193/axum"]
+axum = ["aip-193/axum", "aip-193/derive"]
 
 [dependencies]
 aip-160 = { version = "0.1.5", path = "aip-160" }
