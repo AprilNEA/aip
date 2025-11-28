@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "aip-193"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "aip-193-derive",
  "axum-core",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "aip-193-derive"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "aip-193",
  "axum",

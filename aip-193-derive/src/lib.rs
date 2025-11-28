@@ -2,14 +2,38 @@ use darling::{FromDeriveInput, FromField, FromVariant, ast};
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
-use syn::{DeriveInput, Ident, parse_macro_input};
+use syn::{DeriveInput, Ident, parse_macro_input, Expr};
+
+#[derive(Debug)]
+enum DomainValue {
+    String(String),
+    Function(Expr),
+}
+
+impl darling::FromMeta for DomainValue {
+    fn from_string(value: &str) -> darling::Result<Self> {
+        Ok(DomainValue::String(value.to_string()))
+    }
+
+    fn from_expr(expr: &Expr) -> darling::Result<Self> {
+        // Check if this is a string literal expression
+        if let Expr::Lit(expr_lit) = expr {
+            if let syn::Lit::Str(lit_str) = &expr_lit.lit {
+                return Ok(DomainValue::String(lit_str.value()));
+            }
+        }
+
+        // Otherwise treat it as a function path
+        Ok(DomainValue::Function(expr.clone()))
+    }
+}
 
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(status), supports(enum_any))]
 struct StatusInput {
     ident: Ident,
     data: ast::Data<StatusVariant, ()>,
-    domain: String,
+    domain: DomainValue,
     #[darling(default)]
     into_response: bool,
 }
@@ -73,7 +97,6 @@ pub fn derive_into_status(input: TokenStream) -> TokenStream {
 
 fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
     let name = &input.ident;
-    let domain = &input.domain;
     let krate = get_crate_path();
 
     let variants = match &input.data {
@@ -84,6 +107,11 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
     let code_arms = generate_code_arms(name, variants, &krate);
     let message_arms = generate_message_arms(name, variants);
     let metadata_arms = generate_metadata_arms(name, variants);
+
+    let domain_impl = match &input.domain {
+        DomainValue::String(s) => quote! { #s },
+        DomainValue::Function(expr) => quote! { (#expr)() },
+    };
 
     let into_status_impl = quote! {
         impl #krate::__private::IntoStatus for #name {
@@ -104,7 +132,7 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
             }
 
             fn domain(&self) -> &str {
-                #domain
+                #domain_impl
             }
 
             fn metadata(&self) -> #krate::__private::HashMap<::std::string::String, ::std::string::String> {

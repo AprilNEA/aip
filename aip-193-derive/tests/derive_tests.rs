@@ -963,3 +963,218 @@ mod into_response_tests {
         }
     }
 }
+
+// ============================================================================
+// Domain Function Tests
+// ============================================================================
+
+/// Helper function for static domain
+fn get_static_domain() -> &'static str {
+    "function.domain.com"
+}
+
+/// Helper function for dynamic domain based on environment
+fn get_dynamic_domain() -> &'static str {
+    if cfg!(test) {
+        "test.domain.com"
+    } else {
+        "prod.domain.com"
+    }
+}
+
+/// Error enum with function-based domain
+#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[status(domain = get_static_domain)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+enum FunctionDomainError {
+    #[status(code = NotFound, message = "Resource not found")]
+    NotFound,
+
+    #[status(code = InvalidArgument, message = "Invalid input")]
+    InvalidInput {
+        #[status(metadata)]
+        field: String,
+    },
+
+    #[status(code = Internal)]
+    InternalError,
+}
+
+#[test]
+fn test_function_domain_basic() {
+    assert_eq!(FunctionDomainError::NotFound.domain(), "function.domain.com");
+    assert_eq!(FunctionDomainError::InternalError.domain(), "function.domain.com");
+}
+
+#[test]
+fn test_function_domain_with_metadata() {
+    let err = FunctionDomainError::InvalidInput {
+        field: "email".to_string(),
+    };
+
+    assert_eq!(err.domain(), "function.domain.com");
+    assert_eq!(err.code(), Code::InvalidArgument);
+    assert_eq!(err.metadata().get("field"), Some(&"email".to_string()));
+}
+
+#[test]
+fn test_function_domain_in_status() {
+    let err = FunctionDomainError::NotFound;
+    let status: Status = err.into();
+
+    assert_eq!(status.code, Code::NotFound);
+    let error_info = status.details.error_info.as_ref().unwrap();
+    assert_eq!(error_info.domain, "function.domain.com");
+}
+
+/// Error enum with dynamic function-based domain
+#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[status(domain = get_dynamic_domain)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+enum DynamicDomainError {
+    #[status(code = NotFound)]
+    NotFound,
+
+    #[status(code = InvalidArgument)]
+    InvalidArgument {
+        #[status(metadata)]
+        reason: String,
+    },
+}
+
+#[test]
+fn test_dynamic_function_domain() {
+    // In test configuration, should return test domain
+    assert_eq!(DynamicDomainError::NotFound.domain(), "test.domain.com");
+
+    let err = DynamicDomainError::InvalidArgument {
+        reason: "bad format".to_string(),
+    };
+    assert_eq!(err.domain(), "test.domain.com");
+}
+
+#[test]
+fn test_dynamic_domain_in_status() {
+    let err = DynamicDomainError::InvalidArgument {
+        reason: "validation failed".to_string(),
+    };
+    let status: Status = err.into();
+
+    let error_info = status.details.error_info.as_ref().unwrap();
+    assert_eq!(error_info.domain, "test.domain.com");
+    assert_eq!(error_info.metadata.get("reason"), Some(&"validation failed".to_string()));
+}
+
+/// Error enum with function domain and IntoResponse
+#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[status(domain = get_static_domain, into_response = true)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+enum FunctionDomainWithResponse {
+    #[status(code = NotFound, message = "Not found")]
+    NotFound,
+
+    #[status(code = Unauthenticated, message = "Authentication required")]
+    Unauthorized {
+        #[status(metadata)]
+        token_type: String,
+    },
+}
+
+#[test]
+fn test_function_domain_with_into_response() {
+    use axum::response::IntoResponse;
+    use axum::http::StatusCode as HttpStatus;
+
+    let err = FunctionDomainWithResponse::NotFound;
+    assert_eq!(err.domain(), "function.domain.com");
+
+    let response = err.into_response();
+    assert_eq!(response.status(), HttpStatus::NOT_FOUND);
+}
+
+#[test]
+fn test_function_domain_with_into_response_and_metadata() {
+    use axum::response::IntoResponse;
+    use axum::http::StatusCode as HttpStatus;
+
+    let err = FunctionDomainWithResponse::Unauthorized {
+        token_type: "Bearer".to_string(),
+    };
+
+    // Verify domain function is called
+    assert_eq!(err.domain(), "function.domain.com");
+
+    // Verify Status conversion preserves domain
+    let status: Status = err.clone().into();
+    let error_info = status.details.error_info.as_ref().unwrap();
+    assert_eq!(error_info.domain, "function.domain.com");
+    assert_eq!(error_info.metadata.get("token_type"), Some(&"Bearer".to_string()));
+
+    // Verify IntoResponse works
+    let response = err.into_response();
+    assert_eq!(response.status(), HttpStatus::UNAUTHORIZED);
+}
+
+/// Test with module-scoped function
+mod domain_helpers {
+    pub fn get_module_domain() -> &'static str {
+        "module.scoped.domain.com"
+    }
+}
+
+#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[status(domain = domain_helpers::get_module_domain)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+enum ModuleDomainError {
+    #[status(code = Internal)]
+    InternalError,
+}
+
+#[test]
+fn test_module_scoped_domain_function() {
+    assert_eq!(ModuleDomainError::InternalError.domain(), "module.scoped.domain.com");
+
+    let status: Status = ModuleDomainError::InternalError.into();
+    let error_info = status.details.error_info.as_ref().unwrap();
+    assert_eq!(error_info.domain, "module.scoped.domain.com");
+}
+
+/// Test comparing string domain vs function domain behavior
+#[derive(Debug, Clone, IntoStatus, AsRefStr)]
+#[status(domain = "static.string.com")]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+enum StringDomainError {
+    #[status(code = NotFound)]
+    NotFound,
+}
+
+#[test]
+fn test_string_vs_function_domain_equivalence() {
+    // Both should work identically in terms of the IntoStatus trait
+    let string_err = StringDomainError::NotFound;
+    let function_err = FunctionDomainError::NotFound;
+
+    // Both should return their respective domains
+    assert_eq!(string_err.domain(), "static.string.com");
+    assert_eq!(function_err.domain(), "function.domain.com");
+
+    // Both should convert to Status correctly
+    let string_status: Status = string_err.into();
+    let function_status: Status = function_err.into();
+
+    assert_eq!(string_status.details.error_info.as_ref().unwrap().domain, "static.string.com");
+    assert_eq!(function_status.details.error_info.as_ref().unwrap().domain, "function.domain.com");
+}
+
+#[test]
+fn test_function_domain_json_serialization() {
+    let err = FunctionDomainError::InvalidInput {
+        field: "username".to_string(),
+    };
+
+    let status: Status = err.into();
+    let json = serde_json::to_string(&status).unwrap();
+
+    assert!(json.contains(r#""domain":"function.domain.com""#));
+    assert!(json.contains(r#""field":"username""#));
+}
