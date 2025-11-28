@@ -2,7 +2,7 @@ use darling::{FromDeriveInput, FromField, FromVariant, ast};
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
-use syn::{DeriveInput, Ident, parse_macro_input, Expr};
+use syn::{DeriveInput, Expr, Ident, parse_macro_input};
 
 #[derive(Debug)]
 enum DomainValue {
@@ -36,6 +36,12 @@ struct StatusInput {
     domain: DomainValue,
     #[darling(default)]
     into_response: bool,
+    #[darling(default = "default_true")]
+    use_display: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, FromVariant)]
@@ -46,6 +52,8 @@ struct StatusVariant {
     code: Ident,
     #[darling(default)]
     message: Option<String>,
+    #[darling(default)]
+    use_display: Option<bool>,
 }
 
 #[derive(Debug, FromField)]
@@ -105,7 +113,7 @@ fn generate_impl(input: &StatusInput) -> proc_macro2::TokenStream {
     };
 
     let code_arms = generate_code_arms(name, variants, &krate);
-    let message_arms = generate_message_arms(name, variants);
+    let message_arms = generate_message_arms(name, variants, input.use_display);
     let metadata_arms = generate_metadata_arms(name, variants);
 
     let domain_impl = match &input.domain {
@@ -216,18 +224,23 @@ fn generate_code_arms(
 fn generate_message_arms(
     enum_name: &Ident,
     variants: &[StatusVariant],
+    use_display: bool,
 ) -> Vec<proc_macro2::TokenStream> {
     variants
         .iter()
         .map(|v| {
-            let variant_name = &v.ident;
             let pattern = generate_pattern(enum_name, v);
 
             let message_expr = if let Some(template) = &v.message {
                 parse_message_template(template, &v.fields)
             } else {
-                let default_msg = format!("{}", variant_name);
-                quote! { #default_msg.to_string() }
+                let should_use_display = v.use_display.unwrap_or(use_display);
+                if should_use_display {
+                    quote! { ::std::string::ToString::to_string(self) }
+                } else {
+                    let default_msg = format!("{}", v.ident);
+                    quote! { #default_msg.to_string() }
+                }
             };
 
             quote! {
