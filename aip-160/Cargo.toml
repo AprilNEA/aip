@@ -10,6 +10,7 @@ repository = { workspace = true }
 [features]
 default = []
 sea-orm = ["dep:sea-orm"]
+sea-orm-v2 = ["dep:sea-orm-v2"]
 
 [dependencies]
 pest = "2.7"
@@ -17,6 +18,7 @@ pest_derive = "2.7"
 thiserror = "2.0"
 
 sea-orm = { version = "1.1", features = ["sqlx-all"], optional = true }
+sea-orm-v2 = { version = "2.0.0-rc.21", features = ["sqlx-all"], optional = true, package = "sea-orm" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -24,6 +26,10 @@ sea-orm = { version = "1.1", features = [
     "sqlx-sqlite",
     "runtime-tokio-native-tls",
 ] }
+sea-orm-v2 = { version = "2.0.0-rc.21", features = [
+    "sqlx-sqlite",
+    "runtime-tokio-native-tls",
+], package = "sea-orm" }
 
 [[example]]
 name = "parser"
@@ -31,3 +37,7 @@ name = "parser"
 [[example]]
 name = "sea_orm"
 required-features = ["sea-orm"]
+
+[[example]]
+name = "sea_orm_v2"
+required-features = ["sea-orm-v2"]

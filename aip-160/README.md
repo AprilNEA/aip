@@ -17,9 +17,37 @@ A Rust implementation of [Google AIP-160](https://google.aip.dev/160) filtering 
 # Basic parsing only
 aip-160 = "0.1"
 
-# With SeaORM support
+# With SeaORM v1 support (stable)
 aip-160 = { version = "0.1", features = ["sea-orm"] }
+
+# With SeaORM v2 support (RC version)
+aip-160 = { version = "0.1", features = ["sea-orm-v2"] }
 ```
+
+### SeaORM v2 Support
+
+SeaORM v2 support is currently available as a release candidate (RC).
+
+**Note**: SeaORM v2 is still in RC phase. The API may change before final release.
+
+#### Usage for SeaORM v2
+
+```rust
+use aip_160::{parse_filter, ToSeaOrmConditionV2};
+use sea_orm_v2::entity::prelude::*;
+
+// Use ToSeaOrmConditionV2 trait for v2
+let filter = parse_filter("name = \"Alice\" AND age > 18")?;
+let condition = filter.to_condition::<Entity>()?;
+
+Entity::find().filter(condition).all(db).await?;
+```
+
+#### Migration from v1 to v2
+
+1. Update your `Cargo.toml` to use `sea-orm-v2` feature
+2. Change import from `ToSeaOrmCondition` to `ToSeaOrmConditionV2`
+3. Update SeaORM imports to use `sea_orm_v2`
 
 ## Quick Start
 
