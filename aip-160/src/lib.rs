@@ -115,10 +115,18 @@ pub mod parser;
 #[cfg(feature = "sea-orm")]
 pub mod sea_orm;
 
+#[cfg(feature = "sea-orm-v2")]
+pub mod sea_orm_v2;
+
 // Re-export commonly used items
 pub use ast::{Comparator, Expression, Filter, Restriction, Value};
 pub use error::{FilterError, Result};
 pub use parser::parse_filter;
 
 #[cfg(feature = "sea-orm")]
-pub use sea_orm::{column_from_str, ToSeaOrmCondition};
+pub use sea_orm::{ToSeaOrmCondition, column_from_str};
+
+#[cfg(feature = "sea-orm-v2")]
+pub use sea_orm_v2::{
+    ToSeaOrmCondition as ToSeaOrmConditionV2, column_from_str as column_from_str_v2,
+};

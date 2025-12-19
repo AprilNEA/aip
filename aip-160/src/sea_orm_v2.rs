@@ -1,6 +1,6 @@
-/// SeaORM integration
-#[cfg(feature = "sea-orm")]
-use sea_orm::{
+/// SeaORM v2 integration
+#[cfg(feature = "sea-orm-v2")]
+use sea_orm_v2::{
     ColumnTrait, Condition, EntityTrait, IntoSimpleExpr,
     sea_query::{Alias, ColumnType as SeaColumnType, Expr, ExprTrait, SimpleExpr},
 };
@@ -19,7 +19,9 @@ where
 {
     fn map_field(&self, field: &str) -> Result<(SimpleExpr, SeaColumnType)> {
         let col = get_column::<<T as EntityTrait>::Column>(field)?;
-        Ok((col.into_simple_expr(), col.def().get_column_type().clone()))
+        #[allow(deprecated)] // implementation detail of sea-orm
+        let col_type = col.def().get_column_type().clone();
+        Ok((col.into_simple_expr(), col_type))
     }
 }
 
@@ -29,9 +31,10 @@ use crate::error::{FilterError, Result};
 /// Helper function to convert a field name to a column
 ///
 /// Supports both exact matches and snake_case to PascalCase conversion.
+#[cfg(feature = "sea-orm-v2")]
 pub fn column_from_str<C>(field: &str) -> Result<SimpleExpr>
 where
-    C: std::str::FromStr + sea_orm::IntoSimpleExpr,
+    C: std::str::FromStr + sea_orm_v2::IntoSimpleExpr,
     <C as std::str::FromStr>::Err: std::fmt::Display,
 {
     // Try direct conversion first
@@ -63,13 +66,14 @@ where
 ///
 /// ```ignore
 /// use aip_160::{parse_filter, ToSeaOrmCondition};
-/// use sea_orm::entity::prelude::*;
+/// use sea_orm_v2::entity::prelude::*;
 ///
 /// let filter = parse_filter("name = \"Alice\" AND age > 18")?;
 /// let condition = filter.to_condition::<Entity>()?;
 ///
 /// Entity::find().filter(condition).all(db).await?;
 /// ```
+#[cfg(feature = "sea-orm-v2")]
 pub trait ToSeaOrmCondition {
     /// Convert filter to condition with automatic type inference from Entity
     ///
@@ -85,6 +89,7 @@ pub trait ToSeaOrmCondition {
         M: FieldMapper;
 }
 
+#[cfg(feature = "sea-orm-v2")]
 impl ToSeaOrmCondition for Filter {
     fn to_condition<M>(&self, mapper: &M) -> Result<Condition>
     where
@@ -94,6 +99,7 @@ impl ToSeaOrmCondition for Filter {
     }
 }
 
+#[cfg(feature = "sea-orm-v2")]
 fn expression_to_condition<M>(mapper: &M, expr: &Expression) -> Result<Condition>
 where
     M: FieldMapper,
@@ -121,6 +127,7 @@ where
 }
 
 /// Helper to get the Column instance from field name
+#[cfg(feature = "sea-orm-v2")]
 fn get_column<C>(field: &str) -> Result<C>
 where
     C: std::str::FromStr,
@@ -148,6 +155,7 @@ where
         .map_err(|e| FilterError::InvalidField(format!("{}: {}", field, e)))
 }
 
+#[cfg(feature = "sea-orm-v2")]
 fn restriction_to_condition<M>(mapper: &M, restriction: &Restriction) -> Result<Condition>
 where
     M: FieldMapper,
@@ -190,7 +198,7 @@ where
             }
         }
         (Value::Boolean(b), _) => Expr::val(*b).into(),
-        (Value::Null, _) => Expr::value(sea_orm::sea_query::Value::String(None)).into(),
+        (Value::Null, _) => Expr::value(sea_orm_v2::sea_query::Value::String(None)).into(),
     };
 
     let condition = match (&restriction.comparator, &restriction.value) {
@@ -224,8 +232,8 @@ mod tests {
     use super::*;
 
     // Note: Unit tests here are minimal because full Entity integration
-    // requires complex trait implementations. See tests/sea_orm_integration.rs
-    // for comprehensive integration tests with a real SeaORM Entity.
+    // requires complex trait implementations. See tests/sea_orm_v2_integration.rs
+    // for comprehensive integration tests with a real SeaORM v2 Entity.
 
     #[test]
     fn test_column_name_conversion() {
